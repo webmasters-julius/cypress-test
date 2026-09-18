@@ -1,0 +1,66 @@
+name: Weekly Navbar & CTA Check
+
+# Corre automáticamente todos los lunes a las 09:00 UTC (06:00 hora
+# Argentina/México aprox., ajustá el cron según tu zona horaria:
+# https://crontab.guru te ayuda a armar la expresión).
+# También se puede disparar a mano desde la pestaña "Actions" del repo
+# (botón "Run workflow"), gracias a workflow_dispatch.
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch: {}
+
+jobs:
+  navbar-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Correr tests de Cypress (navbar + CTAs)
+        run: npx cypress run --env DEBUG_PAUSE_MS=0
+
+      # Se ejecuta siempre (haya fallado o no) para poder revisar el video
+      # de la corrida si algo se ve raro.
+      - name: Subir video de la corrida
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-videos
+          path: cypress/videos
+          retention-days: 14
+
+      # Solo si falló algún test: guarda las capturas de pantalla del error.
+      - name: Subir capturas del fallo
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-screenshots
+          path: cypress/screenshots
+          retention-days: 14
+
+      # Notificación a Slack SOLO si algo falló. Requiere crear el secret
+      # SLACK_WEBHOOK_URL en Settings > Secrets and variables > Actions
+      # del repo, con la Incoming Webhook URL de tu canal de Slack.
+      # (Si no querés usar Slack, borrá este step: GitHub igual manda un
+      # email de aviso de "workflow failed" al que editó el workflow,
+      # siempre que tenga habilitadas las notificaciones de Actions en
+      # github.com/settings/notifications).
+      - name: Notificar por Slack si falló
+        if: failure()
+        uses: slackapi/slack-github-action@v1.27.0
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {
+              "text": "🚨 El chequeo semanal de navbar/CTAs de Julius (nearshore-marketing-solutions) falló. Ver detalles y video: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
